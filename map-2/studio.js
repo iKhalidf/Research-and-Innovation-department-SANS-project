@@ -2,12 +2,13 @@ import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {buildFlight,sampleFlight,advance,constraintLabel} from './flight-model.mjs';
 import {mountObserved} from './observed-layer.mjs';
-import {mountScenario} from './scenario-layer.mjs?v=3';
+import {mountScenario} from './scenario-layer.mjs?v=8';
 import {mountNoise,noiseMessage} from './noise-layer.mjs?v=2';
+import {mountForecast} from './forecast-layer.mjs';
 
 const $=id=>document.getElementById(id),host=$('canvas-host'),viewport=$('viewport');
 let data,scene,camera,renderer,controls,selected='34C',vertical=4,speed=1,cameraMode='airport',last=0,ready=false;
-let observed=null,scenario=null;
+let observed=null,scenario=null,forecast=null;
 const noise={visible:false,metric:'lden',loaded:false,error:null,api:null,loading:null,errorEl:null,toggle:null};let flightMode='illustrative';
 let focusAngle=0,focusSubject="aircraft",customTitle="",customCopy="";
 const reducedMotion=matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -36,10 +37,21 @@ function line(points,color,opacity=1){return new THREE.Line(new THREE.BufferGeom
 function label(text,position,type,color){const el=document.createElement('div');el.className='world-label '+type;el.textContent=text;if(color)el.style.setProperty('--label-color',color);$('labels').append(el);const item={el,position,type};worldLabels.push(item);return item}
 function setAttribution(text){$('attribution-text').textContent=text}
 function syncNoise(){
- const hide=flightMode==='observed',on=noise.visible&&!hide;
+ const hide=flightMode==='observed'||flightMode==='forecast',on=noise.visible&&!hide;
  if(noise.toggle)noise.toggle.hidden=hide;
  noise.api?.setCompare(flightMode==='scenario');noise.api?.setShown(on);
  if(noise.errorEl)noise.errorEl.hidden=!(on&&noise.error);
+}
+function changeFlightMode(value){
+ flightMode=value;
+ scenario.setView(value==='scenario'||value==='forecast'?value:'none');
+ if(value==='forecast'){
+  hideDemo(true);
+  setAttribution('© OpenStreetMap contributors · Forecast replay · Modelled impacts');
+  $('sources').textContent='Sources & interpretation';
+ }
+ forecast.setMode(value==='forecast');
+ syncNoise();
 }
 async function loadNoise(){
  if(noise.api||noise.loading)return noise.loading;
@@ -257,9 +269,12 @@ async function init(){
   controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.08;controls.maxPolarAngle=Math.PI/2-.025;controls.minDistance=.8;controls.maxDistance=350;
   scene.add(new THREE.HemisphereLight('#ffffff','#6c8590',2.0));const light=new THREE.DirectionalLight('#fff5e6',2.4);light.position.set(-10,25,10);scene.add(light);
   buildGround();buildRunways();wireControls();selectRunway('34C');setCameraMode('airport');
-   observed=mountObserved({scene,data,aircraft,host,vertical:()=>vertical,camera,controls,onFlightMode:value=>{flightMode=value;scenario?.setMode(value==='scenario');syncNoise()},onMode:enabled=>{setAttribution(enabled?'© OpenStreetMap contributors · Wingbits recorded reports · geometric candidates, clearance unknown':'© OpenStreetMap contributors · SANS AIP AMDT 10/26 · Concept playback, not recorded flights');hideDemo(enabled);$('sources').textContent=enabled?'Sources & interpretation':'Sources & assumptions'}});
-  scenario=mountScenario({scene,data,host,viewport,camera,controls,vertical:()=>vertical,onMode:enabled=>{setAttribution('© OpenStreetMap contributors · SANS AIP AMDT 10/26 · Simulated departures, every number modelled');hideDemo(enabled);$('sources').textContent='Sources & interpretation'}});mountNoiseToggle();$('loading').style.display='none';ready=true;
+  observed=mountObserved({scene,data,aircraft,host,vertical:()=>vertical,camera,controls,onFlightMode:changeFlightMode,onMode:enabled=>{setAttribution(enabled?'© OpenStreetMap contributors · Wingbits recorded reports · geometric candidates, clearance unknown':'© OpenStreetMap contributors · SANS AIP AMDT 10/26 · Concept playback, not recorded flights');hideDemo(enabled);$('sources').textContent=enabled?'Sources & interpretation':'Sources & assumptions'}});
+  scenario=mountScenario({scene,data,host,viewport,camera,controls,vertical:()=>vertical,onMode:enabled=>{setAttribution('© OpenStreetMap contributors · SANS AIP AMDT 10/26 · Simulated departures, every number modelled');hideDemo(enabled);$('sources').textContent='Sources & interpretation'}});
+  forecast=mountForecast({sidebar:document.querySelector('.sidebar'),viewport,scenario});
+  mountNoiseToggle();$('loading').style.display='none';ready=true;
   window.map2={observed,noise:{setVisible:setNoiseVisible,setMetric:name=>{noise.metric=name;noise.api?.setMetric(name)},getState:()=>({visible:noise.visible,metric:noise.api?.getMetric()||noise.metric,loaded:noise.loaded,error:noise.error})},scenario:{select:(runway,sid,aircraft,perDay)=>scenario.select(runway,sid,aircraft,perDay),getState:()=>scenario.getState(),setMode:v=>{const m=document.querySelector('.observed-mode select');m.value=v?'scenario':'illustrative';m.onchange()}},getState:()=>Object.fromEntries(Object.entries(states).map(([id,s])=>[id,{procedure:s.flight?.route.name||null,playing:s.playing,elapsed:s.elapsed,duration:s.flight?.duration||0,loops:s.loops,next:s.sample?.next,position:s.plane.position.toArray()}])),getCamera:()=>({mode:cameraMode,subject:focusSubject,position:camera.position.toArray(),target:controls.target.toArray()}),getCounts:()=>({aircraft:Object.keys(states).length,procedures:data.routes.length,fixes:Object.keys(data.fixes).length}),selectProcedure:name=>{const route=data.routes.find(r=>r.name===name);if(!route)throw new Error('Unknown procedure');chooseProcedure(route)}};
+  window.map2.forecast={getState:forecast.getState};
   requestAnimationFrame(animate);
  }catch(error){$('loading').classList.add('error');$('loading').textContent='Unable to open the 3D scene. Use “Start Map 2.cmd” and a browser with WebGL enabled. '+error.message;console.error(error)}
 }

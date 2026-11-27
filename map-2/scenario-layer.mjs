@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {mountAskMasar} from './ask-masar.mjs?v=4';
 
 const colors={'34C':'#168d9b','34L':'#bb4b76'};
 const levelColors={60:'#12B5EA',65:'#1738F5',70:'#03072E'},levelOpacity={60:.28,65:.3,70:.34},levelHeight={60:.02,65:.022,70:.024};
@@ -30,7 +31,7 @@ export function mountScenario({scene,data,host,viewport,camera,controls,vertical
  let worst=0;for(const [id,fix] of Object.entries(data.fixes)){const [x,z]=project(fix.lat,fix.lon),err=Math.hypot(x-fix.xz[0],z-fix.xz[1]);worst=Math.max(worst,err);if(err>.002)console.warn(`Scenario projection check: fix ${id} is off by ${err.toFixed(4)} km`)}
 
  const group=new THREE.Group();group.visible=false;scene.add(group);
- let contours=null,track=null;
+ let contours=null,track=null,visualRecord=null,view='none';
  const labels=element('div',undefined,'scenario-labels');labels.hidden=true;host.append(labels);
  let placeLabels=[];
 
@@ -38,6 +39,8 @@ export function mountScenario({scene,data,host,viewport,camera,controls,vertical
  const panel=element('section',undefined,'scenario-panel');panel.hidden=true;panel.setAttribute('aria-label','Scenario controls');
  panel.append(element('h2','Scenario (what-if)'),element('p','A simulated departure on a published SID. Every number is modelled, not measured.','scenario-intro'));
  const notice=element('p','Loading the scenarios…','scenario-notice');notice.setAttribute('role','status');panel.append(notice);
+ const activateAsk=mountAskMasar({panel,getDefaults:()=>({runway:state.runway,sid:state.sid,aircraft:state.aircraft}),
+  focusScenario:()=>runwayButtons[state.runway].focus(),showOnMap:showAssistant,restoreMap:refresh});
  const field=(label,child)=>{const w=element('div',undefined,'scenario-field');w.append(element('span',label,'scenario-label'),child);panel.append(w);return w};
  const runwayBox=element('div',undefined,'scenario-runways');runwayBox.setAttribute('role','tablist');runwayBox.setAttribute('aria-label','Runway');
  const runwayButtons={};
@@ -143,29 +146,64 @@ export function mountScenario({scene,data,host,viewport,camera,controls,vertical
   }
  }
  // Frame the 60 dB footprint on the ground from a steep, slightly tilted top view (the footprint is the subject).
- function fitCamera(){
+ function fitCamera(reservedCard=card){
   const box=new THREE.Box3();if(contours?.userData.bounds&&!contours.userData.bounds.isEmpty())box.union(contours.userData.bounds);
   if(box.isEmpty()){const low=track?.userData.below10k||[];low.forEach(p=>box.expandByPoint(new THREE.Vector3(p.x,0,p.z)))}
   if(box.isEmpty())return;
   const center=box.getCenter(new THREE.Vector3()),size=box.getSize(new THREE.Vector3()),half=Math.tan(THREE.MathUtils.degToRad(camera.fov/2));
   // keep the footprint in the free area left of the climb card on wide screens
-  const hostRect=host.getBoundingClientRect(),cardRect=card.getBoundingClientRect(),w=hostRect.width||1,h=hostRect.height||1;
-  const free=!card.hidden&&w>900&&cardRect.width?Math.max(w*.5,cardRect.left-hostRect.left):w;
+  const hostRect=host.getBoundingClientRect(),cardRect=reservedCard.getBoundingClientRect(),w=hostRect.width||1,h=hostRect.height||1;
+  const free=!reservedCard.hidden&&w>900&&cardRect.width?Math.max(w*.5,cardRect.left-hostRect.left):w;
   const dist=Math.min(300,Math.max(6,1.45*Math.max(size.z/2/half,size.x/2/(half*free/h))));
   const shift=(w-free)/2*(2*dist*half*(w/h))/w;
   const tilt=THREE.MathUtils.degToRad(28);center.y=0;center.x+=shift;
   controls.target.copy(center);camera.position.set(center.x,dist*Math.cos(tilt),center.z+dist*Math.sin(tilt));controls.update();
  }
 
+ function setOverlay(visible){
+  group.visible=visible;
+  labels.hidden=!visible;
+  legend.hidden=!visible;
+  card.hidden=!visible||view!=='scenario';
+ }
+ function draw(record,geo){
+  dispose(contours);dispose(track);
+  contours=buildContours(geo);group.add(contours);track=buildTrack(record);
+  lastVertical=vertical();visualRecord=record;buildPlaceLabels(record);
+ }
  async function refresh(){
   const mine=++token,record=findRecord();
   if(!record){setNotice('No scenario for this combination.',true);return}
   let geo;
   try{geo=await loadGeo(record)}catch(e){if(mine===token)setNotice(e.message,true);return}
   if(mine!==token)return;
-  setNotice('');state.record=record;
-  dispose(contours);dispose(track);contours=buildContours(geo);group.add(contours);track=buildTrack(record);lastVertical=vertical();
-  buildPlaceLabels(record);renderResults();renderCard();if(state.enabled)fitCamera();
+  setNotice('');state.record=record;renderResults();
+  if(view==='forecast')return;
+  draw(record,geo);renderCard();
+  if(state.enabled){setOverlay(true);fitCamera()}
+ }
+
+ async function showForecast(record,impactCard){
+  if(view!=='forecast')return false;
+  const mine=++token;
+  if(!record){setOverlay(false);return false}
+  if(visualRecord===record){
+   const wasVisible=group.visible;
+   setOverlay(true);
+   if(!wasVisible)fitCamera(impactCard);
+   return true;
+  }
+  setOverlay(false);
+  const geo=await loadGeo(record);
+  if(mine!==token||view!=='forecast')return false;
+  draw(record,geo);setOverlay(true);fitCamera(impactCard);
+  return true;
+ }
+
+ function showAssistant(record,geo){
+  if(view!=='scenario')return;
+  token++;
+  draw(record,geo);renderCard(record,true);setOverlay(true);fitCamera();
  }
 
  function tile(caption,value,unit){const t=element('div',undefined,'scenario-tile');t.append(element('small',caption+' · MODELLED'));const s=element('strong',value);if(unit)s.append(' ',element('em',unit));t.append(s);return t}
@@ -200,8 +238,9 @@ export function mountScenario({scene,data,host,viewport,camera,controls,vertical
   det.append(credit);results.append(det);
  }
 
- function renderCard(){
-  const r=state.record;svg.replaceChildren();if(!r)return;
+ function renderCard(r=state.record,fromAssistant=false){
+  svg.replaceChildren();if(!r)return;
+  cardTag.textContent=fromAssistant?'ASK MASAR':'MODELLED';
   const color=colors[r.runway],name=state.index.aircraft?.[r.aircraft]?.name||r.aircraft;
   cardSub.textContent=`${r.runway} · ${r.sid} · ${name}`;
   const W=320,H=150,L=40,R=12,T=10,B=24,prof=r.profile,maxD=Math.max(...prof.map(p=>p[0]),1),maxA=Math.max(12000,Math.ceil(Math.max(...prof.map(p=>p[1]))/4000)*4000);
@@ -220,25 +259,27 @@ export function mountScenario({scene,data,host,viewport,camera,controls,vertical
   const label=`10,000 ft · ${num(d10,1)} NM`,anchorEnd=xm>W*.6;mk('text',{x:anchorEnd?xm-6:xm+6,y:Y(10000)-6,'text-anchor':anchorEnd?'end':'start',class:'mark'},label);
  }
 
- function setMode(enabled){
-  if(enabled===state.enabled)return;
-  state.enabled=enabled;group.visible=enabled;panel.hidden=!enabled;labels.hidden=!enabled;legend.hidden=!enabled;card.hidden=!enabled;
-  document.body.classList.toggle('scenario-mode-active',enabled);
-  if(enabled){onMode(true);start()}
+ function setView(next){
+  if(next===view)return;
+  view=next;token++;state.enabled=view==='scenario';
+  panel.hidden=!state.enabled;setOverlay(false);
+  document.body.classList.toggle('scenario-mode-active',view!=='none');
+  if(state.enabled){onMode(true);activateAsk();start()}
  }
  async function start(){
   try{await loadIndex()}catch{return}
+  if(!state.enabled)return;
   if(!state.sid){const first=state.index.scenarios.find(s=>s.runway===state.runway)||state.index.scenarios[0];state.runway=first.runway;state.sid=first.sid;if(!state.index.aircraft?.[state.aircraft])state.aircraft=first.aircraft}
   syncInputs();
-  if(state.record&&state.record===findRecord()){renderResults();renderCard();fitCamera()}else await refresh();
+  if(state.record&&state.record===findRecord()&&visualRecord===state.record){renderResults();renderCard();setOverlay(true);fitCamera()}else await refresh();
  }
  function update(){
-  if(!state.enabled)return;
-  if(track&&lastVertical!==vertical()){dispose(track);track=buildTrack(state.record);lastVertical=vertical()}
+  if(!group.visible)return;
+  if(track&&lastVertical!==vertical()){dispose(track);track=buildTrack(visualRecord);lastVertical=vertical()}
   const w=host.clientWidth,h=host.clientHeight,v=new THREE.Vector3();
   for(const l of placeLabels){v.copy(l.position).project(camera);const show=v.z>=-1&&v.z<=1&&Math.abs(v.x)<1.05&&Math.abs(v.y)<1.05;l.el.style.display=show?'':'none';if(show){l.el.style.left=((v.x*.5+.5)*w)+'px';l.el.style.top=((-v.y*.5+.5)*h)+'px'}}
  }
- return {update,setMode,projectionError:worst,
+ return {update,setView,getIndex:loadIndex,showForecast,projectionError:worst,
   select:async(runway,sid,aircraft,perDay)=>{try{await loadIndex()}catch(e){throw e}await choose({runway,sid,aircraft,perDay:perDay??state.perDay});if(!state.record)throw Error(state.error||'No scenario for this combination.');return state.record.id},
   getState:()=>({enabled:state.enabled,runway:state.runway,sid:state.sid,aircraft:state.aircraft,perDay:state.perDay,recordId:state.record?.id||null,error:state.error,groupVisible:group.visible,contourMeshes:contours?.children.filter(o=>o.isMesh).length||0,trackVisible:Boolean(track),places:placeLabels.length})};
 }

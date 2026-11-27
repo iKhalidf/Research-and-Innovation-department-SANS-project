@@ -15,6 +15,7 @@ Masar is a student initiative for SANS, the Saudi Air Navigation Services: an ex
 | **A3** aircraft performance, **A4** ERA5 weather and fuel | [`fuel-weather/`](fuel-weather) (analysis notebook), [`src/sans_a2/fuel_weather.py`](src/sans_a2/fuel_weather.py) (`sans_a2 fuel`) | Hala |
 | **A5** aircraft-noise data, **A6** population, Doc 29 noise model, 3D noise map | [`noise-population/`](noise-population) (`src/a5`, `src/a6`, `src/noise`, `map3d/`) | Maha |
 | **Engine:** Scenario (what-if) generator that joins the layers | [`tools/scenarios/`](tools/scenarios/README.md) → [`map-2/scenarios/`](map-2/scenarios) | Muhannad |
+| **Forecast Replay:** retrospective hourly departure forecasts and baseline comparison | [`src/sans_forecast/`](src/sans_forecast) → [`docs/FORECAST_REPLAY.md`](docs/FORECAST_REPLAY.md) | Masar |
 | **Demo:** Map 2 (3D departure explorer) and Map 1 (ground atlas) | [`map-2/`](map-2), [`map-1/`](map-1), [`index.html`](index.html) | Muhannad; recorded-flight mode by Khalid, fuel display by Hala, observed-noise layer from Maha |
 | Tests | [`tests/`](tests), [`noise-population/tests/`](noise-population/tests) | everyone |
 | Map and data build scripts | [`tools/`](tools) | Muhannad |
@@ -25,8 +26,10 @@ The raw data for all layers (A1 to A6) was collected by Khalid and lives in his 
 
 - **Published procedure demo:** the 16 published SIDs from 34C and 34L in 3D, with an illustrative flight playback.
 - **Scenario (what-if) mode:** pick a runway, SID, aircraft (A320, A20N or B77W) and departures per day, and see modelled fuel and CO₂ to 10,000 ft, time and distance, the climb profile, the LAmax 60 / 65 / 70 dB footprint, the residents inside each contour and the nearest named places, with daily and yearly totals. All 48 combinations are pre-computed from simulated flights by [`tools/scenarios/`](tools/scenarios/README.md): OpenAP for fuel, Maha's Doc 29 model and WorldPop grid for noise and residents.
+- **Ask Masar (local):** ask the Scenario panel to rerun one or compare two fuel and noise cases with your inputs. Qwen interprets the question; the existing physical models supply the estimates. [Local setup and assumptions](docs/ASK_MASAR.md).
 - **Observed noise (1 Oct 2026):** Maha's Lden, Lnight and N70 surfaces and results panel, as aggregated grids only (no flight tracks).
 - **Recorded flights:** Khalid's A2 replay of real departures, with Hala's fuel estimate. This mode needs the local A2 output; the recorded data is never published.
+- **Forecast Replay:** reveal each of 12 next-hour counts, compare Chronos-2 with the previous-hour baseline, and see estimated impact under a selected runway, route and aircraft. The public example uses synthetic counts. Real A2 replay is available through the local viewer. See [Forecast Replay setup and methods](docs/FORECAST_REPLAY.md).
 
 ## Run the demo
 
@@ -40,7 +43,7 @@ It opens <http://127.0.0.1:8765/map-2/>. On Windows you can double-click `Start 
 
 ## Run the tests
 
-One environment (Python 3.12) and one command for all three parts (A2 and fuel, Scenario files, noise-population) and the two Node suites:
+One environment (Python 3.12) and one command for A2 and fuel, Scenarios, Forecast Replay, and noise-population, including the Node suites:
 
 ```
 python -m venv .venv
@@ -56,6 +59,7 @@ To rebuild the 48 scenarios, see [`tools/scenarios/README.md`](tools/scenarios/R
 
 - **Never in this repo:** raw ADS-B reports, per-flight tracks, per-flight fuel or noise results, or anything else derived flight by flight from the Wingbits sample. The sample is for evaluation only. The A2 pipeline writes outside the repo, and `.gitignore` keeps the per-flight outputs of the noise model out.
 - **In this repo:** published procedures, aggregated grids, contours and summary tables, and modelled results for simulated flights.
+- **Forecast Replay:** real A2 counts and scores stay in the local A2 output. Only synthetic counts and their replay are used in the public example.
 - **Not redistributed:** the licensed raw files of the noise model (EASA ANP, ECAC Doc 29 PDFs). They are locked by SHA-256 in `noise-population/config/a5.yaml`, with download steps in `noise-population/docs/README_detailed.md`.
 - **Linked, not copied:** Khalid's raw data repository (above).
 - No file over 50 MB.

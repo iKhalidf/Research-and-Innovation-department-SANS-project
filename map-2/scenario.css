@@ -4,6 +4,40 @@
 .scenario-panel select{background:white;border:1px solid #b5c9ce;border-radius:5px;padding:8px;width:100%;color:#204552}.scenario-panel input[type=range]{width:100%;accent-color:#168d9b}
 .scenario-runways,.scenario-seg{display:flex;gap:6px}.scenario-seg button{flex:1;padding:9px 4px;font-size:12px;font-weight:600;background:#f5fbfbc9;color:#2d5665;border:1px solid #b5c9ce;border-radius:5px}.scenario-seg button:hover{background:#fff}.scenario-seg button.active{background:#fff;color:#234957;border-color:#168d9b;box-shadow:0 3px 12px #355c6e18}
 .scenario-block{border-top:1px solid #bfd1d6;margin-top:16px;padding-top:14px}.scenario-block h3{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#386c79;font-weight:600;margin:0 0 10px}
+.ask-masar{margin:16px 0;padding:12px;background:#f4fafa;border:1px solid #a4c5cb;border-top:3px solid #168d9b;border-radius:7px;font-size:12px;line-height:1.5}
+.ask-masar[hidden]{display:none}
+.ask-masar>h3{margin:0;color:#225865;font-size:18px;line-height:1.25}
+.ask-guides{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.ask-masar form{margin-top:10px}
+.ask-guided-form{padding:8px;border:1px solid #d0e3e6;border-radius:5px;background:#eaf5f6}
+.ask-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(80px,100%),1fr));gap:0 6px;min-width:0;margin:0;padding:0;border:0}
+.ask-masar label,.ask-masar textarea,.ask-masar input{display:block;width:100%}
+.ask-masar textarea,.ask-masar input{margin:5px 0 8px;padding:8px;color:#204552;background:#fff;border:1px solid #9cbac3;border-radius:5px;font:inherit}
+.ask-masar textarea{resize:vertical}
+.ask-masar button{border:1px solid #b5c9ce;border-radius:5px;padding:6px 9px;background:#fff;color:#24525f;font:inherit;cursor:pointer;text-align:left}
+.ask-masar button:hover{border-color:#168d9b}
+.ask-masar button[aria-pressed=true]{border-color:#168d9b;background:#dceff0;font-weight:600}
+.ask-masar .ask-edit-scenario{margin:0 0 8px;padding:0;border:0;background:none;text-decoration:underline;text-underline-offset:2px}
+.ask-masar .ask-primary{background:#226673;border-color:#226673;color:white;font-weight:600}
+.ask-masar .ask-primary:hover{background:#174f5a}
+.ask-masar button:disabled{opacity:.55;cursor:wait}
+.ask-status:empty,.ask-elapsed:empty,.ask-output:empty{display:none}
+.ask-status.error{color:#983328}
+.ask-elapsed{margin:-5px 0 9px;color:#426775;font-variant-numeric:tabular-nums}
+.ask-provider{margin:4px 0 8px;color:#426775}
+.ask-progress{margin:8px 0;color:#2e5c68}
+.ask-progress summary{cursor:pointer}
+.ask-progress ol{margin:6px 0 0;padding-left:21px}
+.ask-progress li{margin-bottom:3px}
+.ask-output h3{margin:10px 0 4px;font-size:13px}
+.ask-output p{margin:5px 0 8px}
+.ask-output details{margin-top:8px;overflow-wrap:anywhere}
+.ask-output ul{padding-inline-start:17px}
+.ask-table{overflow-x:auto;margin:6px 0}
+.ask-table table{border-collapse:collapse;width:100%;font-size:11px;font-variant-numeric:tabular-nums}
+.ask-table th,.ask-table td{padding:5px 4px;border-bottom:1px solid #d8e7e9;text-align:right;white-space:nowrap}
+.ask-table th:first-child,.ask-table td:first-child{text-align:left;white-space:normal}
+.ask-map-actions{display:flex;gap:5px;flex-wrap:wrap}
 .scenario-tiles{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px}.scenario-tile{background:#ffffffa8;border:1px solid #ffffffdc;border-radius:7px;padding:9px 10px}.scenario-tile small{display:block;font-size:8px;letter-spacing:.07em;color:#547a88}.scenario-tile strong{display:block;font-size:20px;font-weight:400;color:#234957;margin-top:4px;font-variant-numeric:tabular-nums}.scenario-tile em{font-size:11px;font-style:normal;color:#557787}
 .scenario-noise{display:grid;grid-template-columns:14px 52px 1fr auto;gap:8px;align-items:center;font-size:12px;padding:5px 0}.scenario-noise i{width:14px;height:14px;border-radius:3px;box-shadow:0 0 0 1px #ffffff9c}.scenario-noise em{font-style:normal;color:#234957;font-weight:600}.scenario-noise small,.scenario-places small{font-size:10px;color:#547a88}.scenario-noise b{font-variant-numeric:tabular-nums}
 .scenario-places{list-style:none;margin:0;padding:0}.scenario-places li{padding:6px 0;border-bottom:1px solid #86a7af44;font-size:12px}.scenario-places small{display:block;margin-top:2px}.scenario-ar{font-size:11px;color:#4d7280;margin-left:4px}
@@ -16,7 +50,7 @@
 .scenario-mode-active .section-head{margin-bottom:8px}.scenario-mode-active .sidebar{overflow-y:auto}.scenario-mode-active .altitude-control{bottom:44px}.scenario-mode-active .attribution{max-width:50%;font-size:10px}
 @media(max-width:1150px){.scenario-card{width:300px}}
 @media(max-width:760px){.scenario-card{width:250px;right:12px;padding:12px}.scenario-card .card-foot{display:none}.scenario-legend{left:12px;bottom:44px}.scenario-panel{padding:0 0 16px}}
-@media(max-width:600px){.scenario-card{display:none}.scenario-legend{bottom:30px}}
+@media(max-width:600px){.scenario-mode-active main:has(.ask-masar:not([hidden])){grid-template-rows:clamp(320px,60dvh,480px) minmax(0,1fr)}.scenario-card{display:none}.scenario-legend{bottom:30px}}
 
 /* keep the footer credit readable above the scenario place labels */
 .scenario-mode-active .attribution{z-index:3;background:#e8f1f3d9;border-radius:5px;padding:2px 7px}

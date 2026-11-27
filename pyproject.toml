@@ -13,6 +13,7 @@ dependencies = ["duckdb==2.0.0", "pytz==2026.5", "pyproj==3.8.0", "psutil==7.2.1
 [project.optional-dependencies]
 test = ["pytest==9.1.1"]
 fuel = ["openap==2.6.2", "xarray==2026.9.0", "netCDF4==1.7.5.1", "scipy==1.18.1"]
+forecast = ["chronos-forecasting==2.3.2"]
 
 [project.scripts]
 sans-a2 = "sans_a2.cli:main"
