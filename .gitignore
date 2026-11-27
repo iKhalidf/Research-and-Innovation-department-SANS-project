@@ -11,6 +11,7 @@ local-data/
 *.duckdb*
 *.parquet
 observed-data/
+forecast-replay.json
 
 # Wingbits-derived per-flight outputs of noise-population scripts: never commit
 # (noise-population/.gitignore already keeps data/inputs/ and data/noise/interim/ out)

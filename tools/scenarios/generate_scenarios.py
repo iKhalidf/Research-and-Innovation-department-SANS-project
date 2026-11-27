@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import os
 import subprocess
 import sys
@@ -46,6 +47,8 @@ LEVELS = (60, 65, 70)
 TOP_FT = 12000            # the simulated climb stops here (as in the reference); results are read at 10,000 ft
 CO2_PER_KG_FUEL = 3.16
 T0_UTC = "2026-10-01T09:00Z"   # 12:00 local: the "day" period of the noise model
+BASELINE_TEMP_C = 30 + 4 * math.sin(math.pi / 4)
+BASELINE_DEW_C = 22.0
 GRID_HALF_WIDTH_M = 60000.0
 ASSUMPTIONS = [
     "Simulated flights, not recorded ones. The aircraft follows the published SID exactly and keeps to its published "
@@ -89,7 +92,7 @@ def sid_legs(a1: pd.DataFrame, runway: str, sid: str):
     return wps, thr, float(first.minimum_climb_ft_per_nm)
 
 
-def simulate(a1, runway, sid, ac, step=2.0):
+def simulate(a1, runway, sid, ac, step=2.0, *, mass_fraction=0.8):
     """Reference model (masar-reference/reference_trajectory_fuel.py), generalised from the single
     "6,000 ft until JN276" level-off to every published altitude limit of the SID:
       * "at" and "at or below" limits are a ceiling until their fix is passed;
@@ -110,7 +113,8 @@ def simulate(a1, runway, sid, ac, step=2.0):
     vs_ic = w.initclimb_vs()["default"]
     vs_cl = w.climb_vs_pre_concas()["default"]
     acp = prop.aircraft(ac)
-    mass = 0.8 * acp["mtow"]
+    initial_mass = float(mass_fraction * acp["mtow"])
+    mass = initial_mass
     ff = FuelFlow(ac=ac, eng=AIRCRAFT[ac]["engine"])
     a = v_lof ** 2 / (2 * d_to)
     e, n, z, t, dist, fuel, cas = e1, n1, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -179,19 +183,31 @@ def simulate(a1, runway, sid, ac, step=2.0):
              for (c, fix), (a, b) in held.items() if c < 10000 and (b - a) / NM >= 0.5]
     air = df[~df.on_ground & (df.alt_msl_ft <= 10000)]
     grad = np.diff(air.alt_msl_ft) / np.maximum(np.diff(air.dist_nm), 1e-9)
-    info = {"elev_ft": elev, "geoid_ft": geoid, "mtow_kg": float(acp["mtow"]), "mass_kg": 0.8 * float(acp["mtow"]),
+    info = {"elev_ft": elev, "geoid_ft": geoid, "mtow_kg": float(acp["mtow"]), "mass_kg": initial_mass,
             "to10k": f10, "fixes": passed, "flags": flags, "notes": notes, "min_climb_ft_per_nm": min_grad,
             "lowest_gradient_ft_per_nm": float(np.percentile(grad[grad > 0], 1)) if (grad > 0).any() else None}
     return df, info
 
 
 # ------------------------------------------------------------------------------------------------ 2. noise
-def noise_inputs(syn, out: Path, jobs):
+def noise_inputs(syn, out: Path, jobs, temperature_c=None):
     """Noise-model inputs for all jobs in one run (same weather, distinct aircraft ids)."""
     syn.main(out, 1)                                     # schema-exact METAR + identity templates
     met = pd.read_csv(out / "ext_metar_oejn.csv")
     met["sknt"], met["drct"] = 0, np.nan                 # still air
     met["metar"] = met.metar.str.replace("33008KT", "00000KT")
+    if temperature_c is not None:
+        from noise.atmosphere import relative_humidity
+
+        # Invert the same Magnus relation used by the noise engine so a
+        # temperature comparison does not also change relative humidity.
+        humidity = float(relative_humidity(BASELINE_TEMP_C, BASELINE_DEW_C))
+        a, b = 17.625, 243.04
+        gamma = math.log(humidity / 100) + a * temperature_c / (b + temperature_c)
+        met["tmpc"], met["dwpc"] = temperature_c, b * gamma / (a - gamma)
+        # The numeric CSV fields carry temperature and dew point. Retain just
+        # the synthetic pressure group consumed by the noise weather parser.
+        met["metar"] = "Q1010"
     met.to_csv(out / "ext_metar_oejn.csv", index=False)
     t0 = int(pd.Timestamp(T0_UTC).value // 1e6)
     obs, fl, ident = [], [], []
@@ -230,10 +246,19 @@ def run_noise(noise_main, repo: Path, work: Path, workers: int):
     cfg["grid"]["half_width_m"] = GRID_HALF_WIDTH_M
     (work / "noise.yaml").write_text(yaml.safe_dump(cfg))
     inp = work / "inp"
-    os.environ.update(NOISE_A2_DIR=str(inp / "a2"), NOISE_METAR_CSV=str(inp / "ext_metar_oejn.csv"),
-                      NOISE_IDENTITY_CSV=str(inp / "aircraft_identity.csv"), NOISE_OUT_ROOT=str(work / "out"))
-    os.environ.pop("NOISE_IDENTITY_FILL_CSV", None)
-    noise_main(work / "noise.yaml", work / "out")
+    overrides = {"NOISE_A2_DIR": str(inp / "a2"), "NOISE_METAR_CSV": str(inp / "ext_metar_oejn.csv"),
+                 "NOISE_IDENTITY_CSV": str(inp / "aircraft_identity.csv"), "NOISE_OUT_ROOT": str(work / "out")}
+    previous = {key: os.environ.get(key) for key in (*overrides, "NOISE_IDENTITY_FILL_CSV")}
+    try:
+        os.environ.update(overrides)
+        os.environ.pop("NOISE_IDENTITY_FILL_CSV", None)
+        noise_main(work / "noise.yaml", work / "out")
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
     return work / "out" / "data" / "noise"
 
 
@@ -275,39 +300,32 @@ def slug(runway, sid, ac):
     return f"{runway}_{sid.replace(' ', '')}_{ac}"
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--noise-repo", type=Path, default=Path(os.environ.get("NOISE_REPO", ROOT / "noise-population")))
-    ap.add_argument("--only", help='one combination, e.g. "34C/ISLAM 2W/A320" (check run; nothing is written to map-2)')
-    ap.add_argument("--work", type=Path, default=WORK)
-    ap.add_argument("--workers", type=int, default=1,
-                    help="noise-model worker processes (keep 1 on Windows: the noise model's process pool fails there)")
-    args = ap.parse_args()
+def calculate_scenarios(combos, noise_repo, work, workers=1, *, mass_fraction=0.8, temperature_c=None, progress=None):
+    """Run the physical models and return records and contours without publishing assets."""
     from pyproj import Transformer
     from scipy.interpolate import RegularGridInterpolator
     from shapely.geometry import LineString, Point, mapping
     from shapely.ops import transform as shp_transform
-    import openap
-
-    syn, noise_main = load_noise(args.noise_repo.resolve())
+    syn, noise_main = load_noise(noise_repo.resolve())
     a1 = pd.read_csv(ROOT / "data" / "A1_Procedures.csv")
-    combos = [(rw, sid, ac) for rw in RUNWAYS for sid in sorted(a1[a1.departure_runway == rw].procedure_name.unique())
-              for ac in AIRCRAFT]
-    if args.only:
-        combos = [tuple(args.only.split("/"))]
-    work = args.work.resolve()
     (work / "inp" / "a2").mkdir(parents=True, exist_ok=True)
 
     jobs = []
+    if progress:
+        progress("fuel")
     for rw, sid, ac in combos:
-        df, info = simulate(a1, rw, sid, ac)
+        df, info = simulate(a1, rw, sid, ac, mass_fraction=mass_fraction)
         jobs.append({"runway": rw, "sid": sid, "ac": ac, "traj": df, "info": info})
         f = info["to10k"]
         print(f"{rw} {sid:9s} {ac}: fuel {f['fuel_kg']:6.1f} kg  {f['time_s']:4.0f} s  {f['distance_nm']:5.1f} NM  "
               f"{' '.join(info['notes'] + info['flags'])}")
-    noise_inputs(syn, work / "inp", jobs)
-    nd = run_noise(noise_main, args.noise_repo.resolve(), work, args.workers)
+    if progress:
+        progress("noise")
+    noise_inputs(syn, work / "inp", jobs, temperature_c)
+    nd = run_noise(noise_main, noise_repo.resolve(), work, workers)
 
+    if progress:
+        progress("contours")
     res = pd.read_csv(nd / "processed" / "flight_results.csv").set_index("flight_id")
     grid = pd.read_parquet(nd / "processed" / "noise_grid.parquet", columns=["x_utm37n_m", "y_utm37n_m"])
     n = int(round(np.sqrt(len(grid))))
@@ -316,8 +334,6 @@ def main():
     to_ll = Transformer.from_crs(32637, 4326, always_xy=True)
     places = places_table()
     records = []
-    if not args.only:
-        OUT.mkdir(parents=True, exist_ok=True)
     for j in jobs:
         fid, info, df = j["flight_id"], j["info"], j["traj"]
         r = res.loc[fid]
@@ -360,22 +376,45 @@ def main():
                "contour_area_km2": areas, "noise_aircraft": r.anp_acft_id,
                "profile": prof, "fixes": info["fixes"], "places": pl, "notes": info["notes"], "flags": info["flags"],
                "lowest_climb_gradient_ft_per_nm": round(info["lowest_gradient_ft_per_nm"] or 0)}
-        records.append(rec)
-        if not args.only:
-            (OUT / rec["geojson"]).write_text(json.dumps({"type": "FeatureCollection", "name": sid_id, "features": feats},
-                                                         separators=(",", ":")) + "\n")
+        records.append((rec, {"type": "FeatureCollection", "name": sid_id, "features": feats}, info, r))
         print(f"{sid_id:22s} residents >=60/65/70: {rec['residents']['60']:>7,} / {rec['residents']['65']:>7,} / "
               f"{rec['residents']['70']:>6,}  ANP {r.anp_acft_id}")
+    return records
+
+
+def main():
+    from importlib.metadata import version
+
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--noise-repo", type=Path, default=Path(os.environ.get("NOISE_REPO", ROOT / "noise-population")))
+    ap.add_argument("--only", help='one combination, e.g. "34C/ISLAM 2W/A320" (check run; nothing is written to map-2)')
+    ap.add_argument("--work", type=Path, default=WORK)
+    ap.add_argument("--workers", type=int, default=1,
+                    help="noise-model worker processes (keep 1 on Windows: the noise model's process pool fails there)")
+    args = ap.parse_args()
+    a1 = pd.read_csv(ROOT / "data" / "A1_Procedures.csv")
+    combos = [(rw, sid, ac) for rw in RUNWAYS for sid in sorted(a1[a1.departure_runway == rw].procedure_name.unique())
+              for ac in AIRCRAFT]
+    if args.only:
+        requested = tuple(args.only.split("/"))
+        if requested not in combos:
+            ap.error("--only must identify a supported runway/SID/aircraft")
+        combos = [requested]
+    outputs = calculate_scenarios(combos, args.noise_repo, args.work.resolve(), args.workers)
+    records = [record for record, _, _, _ in outputs]
     if args.only:
         print(json.dumps({k: v for k, v in records[0].items() if k not in ("profile", "places")}, indent=1))
         return
+    OUT.mkdir(parents=True, exist_ok=True)
+    for record, geo, _, _ in outputs:
+        (OUT / record["geojson"]).write_text(json.dumps(geo, separators=(",", ":")) + "\n", encoding="utf-8")
     index = {
         "schema_version": 1,
         "title": "Masar Map 2 scenarios: simulated departures, OEJN runways 34C and 34L",
         "generated_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "generator": "tools/scenarios/generate_scenarios.py",
         "sources": {"procedures": "data/A1_Procedures.csv (SANS AIP AIRAC AMDT 10/26)",
-                    "fuel_model": f"OpenAP {getattr(openap, '__version__', '')}".strip(),
+                    "fuel_model": f"OpenAP {version('openap')}",
                     "noise_model": "noise-population/ (from github.com/M40aha/oejn-noise-population; ECAC Doc 29 5th ed., EASA ANP 2.3)",
                     "noise_model_commit": git_head(args.noise_repo),
                     "population": "WorldPop R2025A 100 m, via noise-population/",

@@ -1,0 +1,31 @@
+.forecast-panel { color: #254957; padding-bottom: 24px; }
+.forecast-panel [hidden], .forecast-panel[hidden], .forecast-compact-impact { display: none; }
+.forecast-panel h2 { font-size: 22px; margin: 16px 0 9px; }
+.forecast-panel h3, .forecast-impact-card h3 { font-size: 13px; margin: 0 0 6px; }
+.forecast-panel p, .forecast-impact-card p, .forecast-compact-impact p { font-size: 12px; line-height: 1.5; margin: 0 0 9px; }
+.forecast-source { border-left: 3px solid #168d9b; background: #eaf3f4; padding: 8px 10px; }
+.forecast-source.synthetic { border-color: #a5762d; }
+.forecast-source.error { border-color: #a54440; }
+.forecast-panel .forecast-progress { color: #496875; font-size: 11px; margin-bottom: 3px; }
+.forecast-panel .forecast-interval { font-size: 16px; font-variant-numeric: tabular-nums; margin-bottom: 9px; }
+.forecast-detected:empty, .forecast-impact-message:empty { display: none; }
+.forecast-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.forecast-actions button, .forecast-assumptions select {
+ background: #fff; border: 1px solid #b5c9ce; border-radius: 5px; color: #214c58; padding: 7px 9px;
+}
+.forecast-actions button { cursor: pointer; font-size: 11px; }
+.forecast-actions button:disabled { cursor: default; opacity: .55; }
+.forecast-assumptions { border: 0; border-top: 1px solid #bfd1d6; margin: 14px 0 0; min-width: 0; padding: 8px 0 4px; }
+.forecast-assumptions legend { padding: 0 7px 0 0; font-size: 12px; font-weight: 600; }
+.forecast-assumptions label { display: block; font-size: 11px; margin-bottom: 7px; }
+.forecast-assumptions select { display: block; margin-top: 3px; width: 100%; }
+.forecast-score, .forecast-history { border-top: 1px solid #bfd1d6; margin-top: 12px; padding-top: 10px; }
+.forecast-history summary { cursor: pointer; font-size: 12px; font-weight: 600; }
+.forecast-history table { border-collapse: collapse; font-size: 11px; width: 100%; }
+.forecast-history th, .forecast-history td { border-bottom: 1px solid #cbdade; padding: 5px 3px; text-align: right; }
+.forecast-history th:first-child, .forecast-history td:first-child { text-align: left; }
+.forecast-panel .forecast-method { color: #496875; margin: 12px 0 0; }
+.forecast-impact-card { pointer-events: none; }
+@media (max-width: 600px) {
+ .forecast-panel .forecast-compact-impact:not([hidden]) { display: block; }
+}
